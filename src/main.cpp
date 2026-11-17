@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiManager.h> // Nova biblioteca para Wi-Fi dinâmico
+#include <WiFiManager.h> 
 #include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitor de Temperatura</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+</head>
+<body style="font-family:sans-serif;text-align:center">
+  <h1>Temperatura</h1>
+  <h2 id="temp" style="font-size:64px">--</h2>
+  <canvas id="grafico" width="600" height="250"></canvas>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+    import { getDatabase, ref, onValue, query, limitToLast } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBKtDPZCYwmFePEW6CRfPWVZXwiF9mhkQo",
+      authDomain: "fir-mqtt-9f86a.firebaseapp.com",
+      databaseURL: "https://fir-mqtt-9f86a-default-rtdb.firebaseio.com",
+      projectId: "fir-mqtt-9f86a",
+      storageBucket: "fir-mqtt-9f86a.firebasestorage.app",
+      messagingSenderId: "357436375592",
+      appId: "1:357436375592:web:8f829ab8a10c2e8b1c6b1d"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    onValue(ref(db, "sensor/temperatura"), s => {
+      document.getElementById("temp").textContent = s.val() + " °C";
+    });
+
+    const grafico = new Chart(document.getElementById("grafico"), {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "°C", data: [] }] }
+    });
+
+    onValue(query(ref(db, "historico"), limitToLast(20)), s => {
+      const dados = Object.values(s.val() || {});
+      grafico.data.labels = dados.map(d => new Date(d.timestamp * 1000).toLocaleTimeString());
+      grafico.data.datasets[0].data = dados.map(d => d.temperatura);
+      grafico.update();
+    });
+  </script>
+</body>
+</html>

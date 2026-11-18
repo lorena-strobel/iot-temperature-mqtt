@@ -2,13 +2,93 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Monitor de Temperatura</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor de temperatura</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;900&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <style>
+    :root {
+      --h: 200;
+      --bg: hsl(var(--h) 45% 94%);
+      --card: hsl(var(--h) 60% 88%);
+      --ink: hsl(var(--h) 40% 14%);
+      --soft: hsl(var(--h) 20% 38%);
+      --panel: #ffffffcc;
+      --line: hsl(var(--h) 70% 38%);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: hsl(var(--h) 30% 10%);
+        --card: hsl(var(--h) 35% 20%);
+        --ink: hsl(var(--h) 40% 94%);
+        --soft: hsl(var(--h) 20% 72%);
+        --panel: #ffffff10;
+        --line: hsl(var(--h) 80% 65%);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink);
+      transition: background .8s;
+      display: flex; justify-content: center; padding: 24px 16px;
+    }
+    main { width: 100%; max-width: 720px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    h1 { font-size: 1.25rem; margin: 0; font-weight: 700; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--soft); font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; }
+    .dot.on { background: #1fa855; box-shadow: 0 0 0 0 #1fa85588; animation: pulse 2s infinite; }
+    .dot.off { background: #d9534f; }
+    @keyframes pulse { 70% { box-shadow: 0 0 0 9px #1fa85500; } 100% { box-shadow: 0 0 0 0 #1fa85500; } }
+    .hero {
+      background: var(--card); border-radius: 28px; padding: 32px 20px; text-align: center;
+      transition: background .8s;
+    }
+    .temp { font-size: clamp(4rem, 20vw, 7.5rem); font-weight: 900; line-height: 1; margin: 0; letter-spacing: -2px; }
+    .temp small { font-size: .45em; font-weight: 700; letter-spacing: 0; margin-left: 4px; }
+    .msg { margin: 12px 0 0; font-size: 1.15rem; font-weight: 700; }
+    .when { margin: 4px 0 0; color: var(--soft); font-size: .9rem; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .stat { background: var(--panel); border-radius: 18px; padding: 14px 8px; text-align: center; }
+    .stat b { display: block; font-size: 1.5rem; font-weight: 900; }
+    .stat span { font-size: .85rem; color: var(--soft); font-weight: 700; }
+    .chart { background: var(--panel); border-radius: 22px; padding: 16px; }
+    .chart h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 700; }
+    .chart div { position: relative; height: 260px; }
+    footer { text-align: center; color: var(--soft); font-size: .8rem; margin-top: 16px; }
+    @media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } body, .hero { transition: none; } }
+  </style>
 </head>
-<body style="font-family:sans-serif;text-align:center">
-  <h1>Temperatura</h1>
-  <h2 id="temp" style="font-size:64px">--</h2>
-  <canvas id="grafico" width="600" height="250"></canvas>
+<body>
+  <main>
+    <header>
+      <h1>Monitor de temperatura</h1>
+      <div class="status"><span class="dot" id="dot"></span><span id="status">Conectando…</span></div>
+    </header>
+
+    <section class="hero">
+      <p class="temp"><span id="temp">--</span><small>°C</small></p>
+      <p class="msg" id="msg">Aguardando a primeira leitura</p>
+      <p class="when" id="when"></p>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><b id="min">--</b><span>Mínima</span></div>
+      <div class="stat"><b id="avg">--</b><span>Média</span></div>
+      <div class="stat"><b id="max">--</b><span>Máxima</span></div>
+    </section>
+
+    <section class="chart">
+      <h2>Últimas 20 leituras</h2>
+      <div><canvas id="grafico"></canvas></div>
+    </section>
+
+    <footer>Sensor DS18B20 · ESP32 · MQTT · Firebase</footer>
+  </main>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
@@ -24,23 +104,76 @@
       appId: "1:357436375592:web:8f829ab8a10c2e8b1c6b1d"
     };
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const db = getDatabase(initializeApp(firebaseConfig));
+    const $ = id => document.getElementById(id);
+    const LIMITE_SEGUNDOS = 30; // sem leitura nova por esse tempo = "sem dados"
+    let ultimoTimestamp = null;
 
-    onValue(ref(db, "sensor/temperatura"), s => {
-      document.getElementById("temp").textContent = s.val() + " °C";
+    function descricao(t) {
+      if (t < 15) return "Frio";
+      if (t < 22) return "Fresco";
+      if (t < 28) return "Agradável";
+      if (t < 35) return "Quente";
+      return "Muito quente";
+    }
+
+    function aplicarCor(t) {
+      const x = Math.min(1, Math.max(0, (t - 15) / 20)); // 15 °C = azul, 35 °C = vermelho
+      document.documentElement.style.setProperty("--h", Math.round(210 - x * 210));
+    }
+
+    function atualizarStatus() {
+      if (ultimoTimestamp === null) return;
+      const seg = Math.max(0, Math.round(Date.now() / 1000 - ultimoTimestamp));
+      const ativo = seg <= LIMITE_SEGUNDOS;
+      $("dot").className = "dot " + (ativo ? "on" : "off");
+      $("status").textContent = ativo ? "Ao vivo" : "Sem dados novos";
+      $("when").textContent = "Última leitura às " + new Date(ultimoTimestamp * 1000).toLocaleTimeString("pt-BR") +
+        (ativo ? "" : " (há " + (seg < 120 ? seg + " s" : Math.round(seg / 60) + " min") + ")");
+    }
+    setInterval(atualizarStatus, 1000);
+
+    onValue(ref(db, "sensor"), snap => {
+      const d = snap.val();
+      if (!d || typeof d.temperatura !== "number") return;
+      $("temp").textContent = d.temperatura.toFixed(1);
+      $("msg").textContent = descricao(d.temperatura);
+      aplicarCor(d.temperatura);
+      ultimoTimestamp = d.timestamp || null;
+      atualizarStatus();
+      atualizarGrafico();
     });
 
-    const grafico = new Chart(document.getElementById("grafico"), {
+    const grafico = new Chart($("grafico"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "°C", data: [] }] }
+      data: { labels: [], datasets: [{ label: "°C", data: [], tension: 0.35, fill: true, pointRadius: 3, borderWidth: 3 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { grace: "10%" } }
+      }
     });
 
-    onValue(query(ref(db, "historico"), limitToLast(20)), s => {
-      const dados = Object.values(s.val() || {});
-      grafico.data.labels = dados.map(d => new Date(d.timestamp * 1000).toLocaleTimeString());
-      grafico.data.datasets[0].data = dados.map(d => d.temperatura);
-      grafico.update();
+    function atualizarGrafico() {
+      const cor = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
+      const texto = getComputedStyle(document.documentElement).getPropertyValue("--soft").trim();
+      const ds = grafico.data.datasets[0];
+      ds.borderColor = cor; ds.pointBackgroundColor = cor; ds.backgroundColor = cor.replace(")", " / 0.15)");
+      grafico.options.scales.x.ticks = { color: texto, maxTicksLimit: 6 };
+      grafico.options.scales.y.ticks = { color: texto };
+      grafico.update("none");
+    }
+
+    onValue(query(ref(db, "historico"), limitToLast(20)), snap => {
+      const dados = Object.values(snap.val() || {});
+      if (!dados.length) return;
+      const temps = dados.map(d => d.temperatura);
+      grafico.data.labels = dados.map(d => new Date(d.timestamp * 1000).toLocaleTimeString("pt-BR"));
+      grafico.data.datasets[0].data = temps;
+      $("min").textContent = Math.min(...temps).toFixed(1) + " °C";
+      $("max").textContent = Math.max(...temps).toFixed(1) + " °C";
+      $("avg").textContent = (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) + " °C";
+      atualizarGrafico();
     });
   </script>
 </body>

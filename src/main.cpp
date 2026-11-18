@@ -10,7 +10,7 @@
 // -----------------------------------------
 const char* mqtt_server = "test.mosquitto.org"; // Broker público
 const int mqtt_port = 1883;
-const char* topico_temperatura = "trabalho/iot/temperatura"; 
+const char* topico_temperatura = "ifmt/lorena/iot/temperatura"; 
 
 const int oneWireBus = 4; // GPIO 4 (fio de dados do DS18B20)
 
